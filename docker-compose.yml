@@ -1,0 +1,173 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: cineforum_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: cineforum
+      MYSQL_USER: cineforum_user
+      MYSQL_PASSWORD: cineforum_pass
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - cineforum_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: cineforum_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - cineforum_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cineforum_backend
+    restart: always
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             gunicorn cineforum.wsgi:application --bind 0.0.0.0:8000 --workers 4"
+    volumes:
+      - ./backend:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=False
+      - DATABASE_HOST=db
+      - DATABASE_NAME=cineforum
+      - DATABASE_USER=cineforum_user
+      - DATABASE_PASSWORD=cineforum_pass
+      - SECRET_KEY=eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI1ZWM5YWIzNTg3NGM4YjFjYTdhYzY1YjhhODI0YWM5YyIsIm5iZiI6MTY5NzM4OTg2OS42MTEsInN1YiI6IjY1MmMxZDJkMDI0ZWM4MDBhZWNjMDE1NCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.O8YYocbQnZ9BrEfpde3lMgd7QCPNPYfiw0lKhBdvMls
+      - ALLOWED_HOSTS=localhost,127.0.0.1,backend
+      - TMDB_API_KEY=your-tmdb-api-key
+      - EMAIL_HOST=smtp.gmail.com
+      - EMAIL_PORT=587
+      - EMAIL_HOST_USER=your-email@gmail.com
+      - EMAIL_HOST_PASSWORD=your-email-password
+      - EMAIL_USE_TLS=True
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - FRONTEND_URL=http://localhost:3000
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - cineforum_network
+
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cineforum_celery
+    restart: always
+    command: celery -A cineforum worker --loglevel=info
+    volumes:
+      - ./backend:/app
+    environment:
+      - DEBUG=False
+      - DATABASE_HOST=db
+      - DATABASE_NAME=cineforum
+      - DATABASE_USER=cineforum_user
+      - DATABASE_PASSWORD=cineforum_pass
+      - SECRET_KEY=your-secret-key-change-in-production
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - EMAIL_HOST=smtp.gmail.com
+      - EMAIL_PORT=587
+      - EMAIL_HOST_USER=your-email@gmail.com
+      - EMAIL_HOST_PASSWORD=your-email-password
+      - EMAIL_USE_TLS=True
+      - FRONTEND_URL=http://localhost:3000
+    depends_on:
+      - db
+      - redis
+      - backend
+    networks:
+      - cineforum_network
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cineforum_celery_beat
+    restart: always
+    command: celery -A cineforum beat --loglevel=info
+    volumes:
+      - ./backend:/app
+    environment:
+      - DEBUG=False
+      - DATABASE_HOST=db
+      - DATABASE_NAME=cineforum
+      - DATABASE_USER=cineforum_user
+      - DATABASE_PASSWORD=cineforum_pass
+      - SECRET_KEY=your-secret-key-change-in-production
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+      - backend
+    networks:
+      - cineforum_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cineforum_frontend
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8000/api
+    depends_on:
+      - backend
+    networks:
+      - cineforum_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: cineforum_nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - cineforum_network
+
+volumes:
+  mysql_data:
+  static_volume:
+  media_volume:
+
+networks:
+  cineforum_network:
+    driver: bridge

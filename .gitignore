@@ -1,0 +1,25 @@
+# Python
+*.pyc
+__pycache__/
+*.sqlite3
+
+# Node
+node_modules/
+.svelte-kit/
+build/
+
+# Environment
+.env
+.env.local
+
+# Docker
+mysql_data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
