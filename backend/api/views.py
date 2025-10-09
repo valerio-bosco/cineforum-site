@@ -123,10 +123,25 @@ class GroupViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        discover_param = self.request.query_params.get('discover', '').lower()
+        if discover_param in ('1', 'true', 'yes'):
+            return Group.objects.all()
         return Group.objects.filter(
             Q(members=user, groupmembership__status='approved') |
             Q(administrator=user)
         ).distinct()
+
+    def get_object(self):
+        # Allow non-members to access groups for join actions
+        if self.action in ['join_request']:
+            # Use the full queryset instead of filtered queryset
+            queryset = Group.objects.all()
+            lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+            filter_kwargs = {self.lookup_field: self.kwargs[lookup_url_kwarg]}
+            obj = get_object_or_404(queryset, **filter_kwargs)
+            self.check_object_permissions(self.request, obj)
+            return obj
+        return super().get_object()
 
     def perform_create(self, serializer):
         group = serializer.save(administrator=self.request.user)
@@ -381,20 +396,25 @@ class FilmViewSet(viewsets.ModelViewSet):
         try:
             headers = {
                 "accept": "application/json",
-                "Authorization": "Bearer " + api_key
+                "Authorization": f"Bearer {api_key}"
             }
             response = requests.get(
                 f'https://api.themoviedb.org/3/search/movie',
-                params={ 'query': query, 'language': 'en-US' },
+                params={'query': query, 'language': 'en-US'},
                 headers=headers,
                 timeout=10
             )
             
             if response.status_code == 200:
                 return Response(response.json())
-            return Response({
-                'error': 'Failed to search films'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            elif response.status_code == 401:
+                return Response({
+                    'error': 'TMDB API key is invalid. Please check the configuration.'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            else:
+                return Response({
+                    'error': f'TMDB API error: {response.status_code}'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except requests.RequestException as e:
             return Response({
                 'error': f'TMDB API error: {str(e)}'
@@ -428,13 +448,14 @@ class FilmViewSet(viewsets.ModelViewSet):
         # Fetch film from TMDB
         api_key = settings.TMDB_API_KEY
         try:
+            headers = {
+                "accept": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
             response = requests.get(
                 f'https://api.themoviedb.org/3/movie/{tmdb_id}',
                 params={'append_to_response': 'watch/providers'},
-                headers={
-                    "accept": "application/json",
-                    "Authorization": "Bearer " + api_key
-                },
+                headers=headers,
                 timeout=10
             )
             

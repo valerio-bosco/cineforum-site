@@ -126,6 +126,10 @@ class ApiClient {
         return this.request('/groups/');
     }
 
+    async getGroupsDiscover() {
+        return this.request('/groups/?discover=true');
+    }
+
     async getGroup(id: number) {
         return this.request(`/groups/${id}/`);
     }
@@ -145,6 +149,13 @@ class ApiClient {
 
     async approveMember(groupId: number, userId: number) {
         return this.request(`/groups/${groupId}/approve_member/`, {
+            method: 'POST',
+            body: JSON.stringify({ user_id: userId })
+        });
+    }
+
+    async rejectMember(groupId: number, userId: number) {
+        return this.request(`/groups/${groupId}/reject_member/`, {
             method: 'POST',
             body: JSON.stringify({ user_id: userId })
         });

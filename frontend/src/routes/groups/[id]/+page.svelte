@@ -7,8 +7,10 @@
   
   let group: Group | null = null;
   let proposedFilms: GroupFilm[] = [];
+  let pendingRequests: any[] = [];
   let loading = true;
   let isAdmin = false;
+  let membershipStatus: 'approved' | 'pending' | null = null;
   let selectedFilm: GroupFilm | null = null;
 
   $: groupId = parseInt($page.params.id);
@@ -35,10 +37,58 @@
       
       const user = JSON.parse(localStorage.getItem('user') || '{}');
       isAdmin = group.administrator.id === user.id;
+      membershipStatus = group.membership_status || null;
+      
+      // Load pending requests if admin
+      if (isAdmin) {
+        try {
+          const pendingRes = await fetch(`${import.meta.env.VITE_API_URL}/groups/${groupId}/pending_requests/`, {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+            }
+          });
+          pendingRequests = await pendingRes.json();
+        } catch (err) {
+          console.error('Failed to load pending requests:', err);
+          pendingRequests = [];
+        }
+      }
     } catch (error) {
       console.error('Failed to load group:', error);
     } finally {
       loading = false;
+    }
+  }
+
+  async function approveMember(userId: number) {
+    try {
+      await api.approveMember(groupId, userId);
+      alert('Member approved successfully!');
+      await loadGroupData();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to approve member');
+    }
+  }
+
+  async function rejectMember(userId: number) {
+    try {
+      await api.rejectMember(groupId, userId);
+      alert('Member request rejected.');
+      await loadGroupData();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to reject member');
+    }
+  }
+
+  async function requestJoin() {
+    try {
+      const response = await api.joinGroup(groupId);
+      console.log('Join response:', response);
+      alert(response.data?.message || 'Join request sent successfully!');
+      await loadGroupData();
+    } catch (err: any) {
+      console.error('Join error:', err);
+      alert(err.response?.data?.error || err.response?.data?.message || 'Failed to send join request');
     }
   }
 
@@ -295,6 +345,48 @@
     padding: 4rem;
     color: #b3b3b3;
   }
+
+  .pending-requests {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .request-card {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .request-info {
+    flex: 1;
+  }
+
+  .user-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+
+  .user-email {
+    color: #b3b3b3;
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .request-date {
+    color: #808080;
+    font-size: 0.8rem;
+  }
+
+  .request-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
 </style>
 
 {#if loading}
@@ -349,8 +441,42 @@
             Propose Film
           </button>
         </div>
+      {:else}
+        <div class="admin-controls">
+          {#if membershipStatus === null}
+            <button class="btn btn-primary" on:click={requestJoin}>Request to Join</button>
+          {:else if membershipStatus === 'pending'}
+            <button class="btn btn-secondary" disabled>Request Pending</button>
+          {/if}
+        </div>
       {/if}
     </div>
+
+    {#if isAdmin && pendingRequests.length > 0}
+      <div class="section">
+        <h2>Pending Join Requests ({pendingRequests.length})</h2>
+        
+        <div class="pending-requests">
+          {#each pendingRequests as request}
+            <div class="request-card">
+              <div class="request-info">
+                <div class="user-name">{request.user.username}</div>
+                <div class="user-email">{request.user.email}</div>
+                <div class="request-date">Requested: {new Date(request.joined_at).toLocaleDateString()}</div>
+              </div>
+              <div class="request-actions">
+                <button class="btn btn-primary" on:click={() => approveMember(request.user.id)}>
+                  Approve
+                </button>
+                <button class="btn btn-secondary" on:click={() => rejectMember(request.user.id)}>
+                  Reject
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
 
     <div class="section">
       <h2>Proposed Films ({proposedFilms.length})</h2>

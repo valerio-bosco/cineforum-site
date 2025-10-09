@@ -21,6 +21,10 @@
     try {
       const response = await api.getGroups();
       groups = response.data.results || response.data;
+      if (!groups || groups.length === 0) {
+        const discover = await api.getGroupsDiscover();
+        groups = discover.data.results || discover.data;
+      }
     } catch (err) {
       console.error('Failed to load groups:', err);
     } finally {
@@ -52,10 +56,13 @@
 
   async function joinGroup(groupId: number) {
     try {
-      await api.joinGroup(groupId);
+      const response = await api.joinGroup(groupId);
+      console.log('Join response:', response);
+      alert(response.data?.message || 'Join request sent successfully!');
       await loadGroups();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to join group');
+      console.error('Join error:', err);
+      alert(err.response?.data?.error || err.response?.data?.message || 'Failed to join group');
     }
   }
 </script>
@@ -362,6 +369,17 @@
                   Inactive
                 {/if}
               </span>
+            </div>
+            <div>
+              {#if !group.membership_status}
+                <button class="btn btn-primary" on:click|stopPropagation={() => joinGroup(group.id)}>
+                  Join
+                </button>
+              {:else if group.membership_status === 'pending'}
+                <button class="btn btn-secondary" disabled on:click|stopPropagation>
+                  Request Pending
+                </button>
+              {/if}
             </div>
           </div>
 
